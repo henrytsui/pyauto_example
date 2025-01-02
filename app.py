@@ -2,18 +2,39 @@ import time
 import pyautogui
 import keyboard
 import threading
+from queue import Queue
 
 record = False
 replay = False
+action_queue = Queue()
 
-def record_actions():
+def record_keyboard_events():
+    global record
+    while record:
+        event = keyboard.read_event()
+        action = (time.time(), pyautogui.position(), event)
+        action_queue.put(action)
+
+def record_mouse_events():
+    global record
+    last_mouse_position = pyautogui.position()
+    while record:
+        current_mouse_position = pyautogui.position()
+        if current_mouse_position != last_mouse_position:
+            action = (time.time(), current_mouse_position, None)
+            action_queue.put(action)
+            last_mouse_position = current_mouse_position
+        time.sleep(0.01)  # Check mouse position every 10ms
+
+def write_actions_to_file():
     global record
     with open('actions.txt', 'w') as file:
         while record:
-            action = (time.time(), pyautogui.position(), keyboard.read_event())
-            file.write(f"{action[0]},{action[1].x},{action[1].y},{action[2].name}\n")
+            action = action_queue.get()
+            file.write(f"{action[0]},{action[1].x},{action[1].y},{action[2].name if action[2] else 'None'}\n")
             file.flush()  # Flush the file buffer to ensure immediate write
             print(f"Recorded action: {action}")
+            action_queue.task_done()
 
 def start_stop_recording():
     global record
@@ -23,20 +44,33 @@ def start_stop_recording():
     else:
         record = True
         print("Start recording")
-        threading.Thread(target=record_actions).start()
+        keyboard_thread = threading.Thread(target=record_keyboard_events)
+        mouse_thread = threading.Thread(target=record_mouse_events)
+        writer_thread = threading.Thread(target=write_actions_to_file)
+        keyboard_thread.start()
+        mouse_thread.start()
+        writer_thread.start()
 
 def replay_actions():
     global replay
     with open('actions.txt', 'r') as file:
-        for line in file:
-            if not replay:
-                break
-            action = line.strip().split(',')
-            timestamp, x, y, key = float(action[0]), int(action[1]), int(action[2]), action[3]
-            time.sleep(max(0, timestamp - time.time()))
-            pyautogui.moveTo(x, y)
-            keyboard.write(key)
-            print(f"Replayed action: {timestamp}, {x}, {y}, {key}")
+        round = 0
+        while replay:
+            cur_action = 0  # Current action number
+            file.seek(0)  # Reset the file pointer to the beginning
+            for line in file:
+                if not replay:
+                    break
+                action = line.strip().split(',')
+                timestamp, x, y, key = float(action[0]), int(action[1]), int(action[2]), action[3]
+                time.sleep(max(0, timestamp - time.time()))
+                pyautogui.moveTo(x, y)
+                if key is not None:
+                    keyboard.write(key)
+                print(f"Round {round} action {cur_action}: {timestamp}, {x}, {y}, {key}")
+                cur_action += 1
+            print(f"Round {round} completed")
+            round += 1
 
 def start_stop_replay():
     global replay
