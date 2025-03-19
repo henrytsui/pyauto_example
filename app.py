@@ -3,28 +3,52 @@ import pyautogui
 import keyboard
 import threading
 from queue import Queue
+from pynput import mouse
 
 record = False
 replay = False
 action_queue = Queue()
 
+# Define a function to handle mouse movement
+def on_move(x, y):
+    print(f'Mouse moved to ({x}, {y})')
+
+# Define a function to handle mouse click events
+def on_click(x, y, button, pressed):
+    if pressed:
+        print(f'Mouse clicked at ({x}, {y}) with {button}')
+
+# Define a function to handle mouse scroll events
+def on_scroll(x, y, dx, dy):
+    print(f'Mouse scrolled at ({x}, {y}) with delta ({dx}, {dy})')
+
+
+def record_mouse_events():
+    global record
+    def on_move(x, y):
+        if record:
+            action_queue.put((time.time(), pyautogui.position(), None))
+    
+    def on_click(x, y, button, pressed):
+        if record and pressed:
+            action_queue.put((time.time(), pyautogui.position(), button))
+    
+    with mouse.Listener(on_move=on_move, on_click=on_click) as listener:
+        listener.join()
+
+# Start listening to mouse events
+with mouse.Listener(
+        on_move=on_move,
+        on_click=on_click,
+        on_scroll=on_scroll) as listener:
+    listener.join()
+    
 def record_keyboard_events():
     global record
     while record:
         event = keyboard.read_event()
         action = (time.time(), pyautogui.position(), event)
         action_queue.put(action)
-
-def record_mouse_events():
-    global record
-    last_mouse_position = pyautogui.position()
-    while record:
-        current_mouse_position = pyautogui.position()
-        if current_mouse_position != last_mouse_position:
-            action = (time.time(), current_mouse_position, None)
-            action_queue.put(action)
-            last_mouse_position = current_mouse_position
-        time.sleep(0.01)  # Check mouse position every 10ms
 
 def write_actions_to_file():
     global record
